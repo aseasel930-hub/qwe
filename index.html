@@ -15,7 +15,7 @@
 
         body {
             min-height: 100vh;
-            background: linear-gradient(135deg, #1a1a2e, #16213e, #0f3460);
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
             display: flex;
             justify-content: center;
             align-items: center;
@@ -27,7 +27,7 @@
         .container {
             text-align: center;
             padding: 20px;
-            background: rgba(0,0,0,0.4);
+            background: rgba(0, 0, 0, 0.4);
             border-radius: 60px;
             backdrop-filter: blur(5px);
         }
@@ -46,7 +46,7 @@
             width: 100%;
             height: 100%;
             border-radius: 50%;
-            box-shadow: 0 0 0 8px rgba(255,215,0,0.3), 0 20px 40px rgba(0,0,0,0.5);
+            box-shadow: 0 0 0 8px rgba(255, 215, 0, 0.3), 0 20px 40px rgba(0, 0, 0, 0.5);
         }
 
         .pointer {
@@ -96,7 +96,7 @@
         .result-message {
             margin-top: 20px;
             padding: 12px;
-            background: rgba(0,0,0,0.6);
+            background: rgba(0, 0, 0, 0.6);
             border-radius: 30px;
             color: #ffd700;
             font-size: 16px;
@@ -106,7 +106,7 @@
         .error-message {
             margin-top: 15px;
             padding: 12px;
-            background: rgba(255,0,0,0.3);
+            background: rgba(255, 0, 0, 0.3);
             border-radius: 30px;
             color: #ff6666;
             font-size: 14px;
@@ -147,6 +147,12 @@
             40% { opacity: 0; }
             100% { opacity: 0; }
         }
+        
+        .status {
+            margin-top: 15px;
+            font-size: 12px;
+            color: #aaa;
+        }
     </style>
 </head>
 <body>
@@ -157,17 +163,46 @@
     </div>
     <button class="spin-btn" id="spinBtn">🎡 دَوِّر 🎡</button>
     <div id="resultMessage" class="result-message"></div>
+    <div id="status" class="status"></div>
 </div>
 <div class="thunder" id="thunder"></div>
 
 <script>
+    // ==================== 🔴 ضع توكن البوت هنا 🔴 ====================
+    // ⚠️ تنبيه: هذا غير آمن! أي شخص يمكنه رؤية هذا التوكن!
+    const BOT_TOKEN = "8241270850:AAEtXORXapB_iqJStkcZ5IXNcba5O9mbnwY"; // استبدل بتوكنك الحقيقي
+    
+    // رابط API البوت
+    const BOT_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
+    // ================================================================
+    
     const tg = window.Telegram.WebApp;
     tg.expand();
     
-    // ==================== الجوائز (مبسطة) ====================
-    const COLORS = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD'];
+    // الحصول على معلومات المستخدم من Telegram
+    let telegramUserId = null;
+    let telegramUsername = null;
     
-    // الجوائز فقط (5 أقسام فقط)
+    try {
+        if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
+            telegramUserId = tg.initDataUnsafe.user.id;
+            telegramUsername = tg.initDataUnsafe.user.username || tg.initDataUnsafe.user.first_name;
+        }
+    } catch(e) {
+        console.log("Cannot get user from WebApp");
+    }
+    
+    // إذا لم نحصل على المستخدم من WebApp، نستخدم الـ URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlUserId = urlParams.get('user_id');
+    const canSpin = urlParams.get('can_spin') === 'true';
+    const injectedPrize = urlParams.get('prize');
+    
+    // تحديد معرف المستخدم النهائي
+    const USER_ID = telegramUserId || urlUserId;
+    
+    // ==================== الجوائز ====================
+    const COLORS = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD'];
     const SEGMENTS = ['بونص 5%', 'بونص 10%', '5000', '10000', 'حظ اوفر'];
     const SEGMENT_COUNT = SEGMENTS.length;
     const ANGLE_PER_SEGMENT = (Math.PI * 2) / SEGMENT_COUNT;
@@ -180,13 +215,8 @@
     let spinDuration = 3000;
     let targetRotation = 0;
     
-    // قراءة البيانات من الرابط
-    const urlParams = new URLSearchParams(window.location.search);
-    const userId = urlParams.get('user_id');
-    const canSpin = urlParams.get('can_spin') === 'true';
-    const injectedPrize = urlParams.get('prize'); // الجائزة من البوت
-    
-    if (!userId) {
+    // التحقق
+    if (!USER_ID) {
         showError('❌ خطأ: لم يتم العثور على معرف المستخدم');
         document.getElementById('spinBtn').disabled = true;
         document.getElementById('spinBtn').classList.add('disabled');
@@ -196,6 +226,86 @@
         showError('❌ لا يمكنك التدوير الآن!\nيرجى الانتظار 24 ساعة');
         document.getElementById('spinBtn').disabled = true;
         document.getElementById('spinBtn').classList.add('disabled');
+    }
+    
+    // ==================== دالة إرسال النتيجة إلى البوت ====================
+    async function sendResultToBot(prize, userId) {
+        updateStatus('📤 جاري إرسال النتيجة...');
+        
+        // الطريقة 1: عبر WebApp (للأزرار الشفافة)
+        try {
+            tg.sendData(`${prize}|${userId}`);
+            console.log('✅ تم الإرسال عبر tg.sendData');
+            updateStatus('✅ تم الإرسال عبر WebApp');
+        } catch(e) {
+            console.log('tg.sendData فشل:', e);
+        }
+        
+        // الطريقة 2: عبر API المباشر (يعمل مع أي نوع أزرار)
+        try {
+            // إرسال رسالة للمستخدم مباشرة
+            const messageText = `🎡 *نتيجة عجلة الحظ* 🎡\n\nلقد ربحت: *${prize}*\n\nسيتم إضافة الجائزة إلى رصيدك تلقائياً.`;
+            
+            const response = await fetch(`${BOT_API}/sendMessage`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    chat_id: userId,
+                    text: messageText,
+                    parse_mode: 'Markdown'
+                })
+            });
+            
+            const result = await response.json();
+            if (result.ok) {
+                console.log('✅ تم إرسال الرسالة عبر API');
+                updateStatus('✅ تم إرسال الجائزة!');
+            } else {
+                console.log('❌ فشل إرسال API:', result);
+                updateStatus('❌ فشل الإرسال عبر API');
+            }
+        } catch(e) {
+            console.error('❌ خطأ في API:', e);
+            updateStatus('❌ خطأ في الاتصال');
+        }
+        
+        // الطريقة 3: محاولة إرسال كـ callback query (للأزرار العادية)
+        try {
+            // إنشاء زر مضمن للمستخدم للضغط عليه
+            const inlineKeyboard = {
+                inline_keyboard: [[
+                    {text: "🎁 تفعيل الجائزة", callback_data: `claim_${prize}_${userId}`}
+                ]]
+            };
+            
+            await fetch(`${BOT_API}/sendMessage`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    chat_id: userId,
+                    text: `🎉 مبروك! لقد ربحت ${prize}\nاضغط على الزر لتفعيل جائزتك:`,
+                    reply_markup: inlineKeyboard
+                })
+            });
+        } catch(e) {
+            console.log('فشل إرسال الزر:', e);
+        }
+    }
+    
+    function updateStatus(msg) {
+        const statusDiv = document.getElementById('status');
+        statusDiv.innerHTML = msg;
+        console.log(msg);
+    }
+    
+    function showError(msg) {
+        const err = document.createElement('div');
+        err.className = 'error-message';
+        err.innerHTML = msg;
+        document.querySelector('.container').appendChild(err);
+        setTimeout(() => err.remove(), 5000);
     }
     
     // تأثيرات
@@ -299,7 +409,7 @@
         createSparks();
         thunderEffect();
         
-        // تحديد الجائزة المستهدفة (من البوت أو عشوائية)
+        // تحديد الجائزة
         let targetPrize = injectedPrize;
         let targetIndex;
         
@@ -310,7 +420,7 @@
             targetPrize = SEGMENTS[targetIndex];
         }
         
-        // حساب الزاوية المستهدفة
+        // حساب الزاوية
         const targetAnglePos = (Math.PI * 2) - (targetIndex * ANGLE_PER_SEGMENT) - ANGLE_PER_SEGMENT/2;
         const extraSpins = 6 * Math.PI * 2 + Math.random() * 3 * Math.PI * 2;
         let newTarget = targetAnglePos + extraSpins;
@@ -334,15 +444,15 @@
                 
                 thunderEffect();
                 
-                // إرسال النتيجة إلى البوت (هذا هو المهم!)
-                tg.sendData(`${finalPrize}|${userId}`);
-                
                 const resultDiv = document.getElementById('resultMessage');
                 if(finalPrize === 'حظ اوفر') {
                     resultDiv.innerHTML = '😅 <b>حظ أوفر!</b> 😅<br>جرب حظك غداً!';
                 } else {
-                    resultDiv.innerHTML = `🎉 <b>مبروك!</b> 🎉<br>لقد ربحت: <span style="font-size:20px;">${finalPrize}</span><br>سيتم إضافة الجائزة تلقائياً!`;
+                    resultDiv.innerHTML = `🎉 <b>مبروك!</b> 🎉<br>لقد ربحت: <span style="font-size:20px;">${finalPrize}</span><br>جاري إرسال الجائزة...`;
                 }
+                
+                // إرسال النتيجة إلى البوت (باستخدام التوكن)
+                sendResultToBot(finalPrize, USER_ID);
                 
                 tg.showPopup({
                     title: finalPrize === 'حظ اوفر' ? '😅 حظ أوفر' : '🎉 مبروك!',
@@ -350,28 +460,21 @@
                     buttons: [{type: 'ok', text: 'حسناً'}]
                 });
                 
-                setTimeout(() => tg.close(), 2500);
+                setTimeout(() => tg.close(), 3000);
             }
         }
         requestAnimationFrame(animate);
     }
     
-    function showError(msg) {
-        const err = document.createElement('div');
-        err.className = 'error-message';
-        err.innerHTML = msg;
-        document.querySelector('.container').appendChild(err);
-        setTimeout(() => err.remove(), 5000);
-    }
-    
-    // رابط الصورة الخلفية - غيّر هذا الرابط
-    document.body.style.backgroundImage = "url('https://your-domain.com/bg.jpg')";
+    // رابط الصورة الخلفية - غير هذا الرابط
+    document.body.style.backgroundImage = "url('https://your-domain.com/background.jpg')";
     document.body.style.backgroundSize = "cover";
     
     drawWheel();
     document.getElementById('spinBtn').onclick = spinWheel;
     
-    console.log('Ready - User:', userId, 'CanSpin:', canSpin, 'Prize:', injectedPrize);
+    updateStatus(`✅ جاهز! معرف المستخدم: ${USER_ID}`);
+    console.log('Ready - User:', USER_ID, 'CanSpin:', canSpin, 'Prize:', injectedPrize);
 </script>
 </body>
 </html>
